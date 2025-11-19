@@ -7,6 +7,7 @@ from transformers import AutoTokenizer
 import threading
 from typing import List, Dict, Optional, Set, Union
 import nltk
+import pandas as pd
 #%%
 def get_russian_stopwords_with_timeout(timeout_seconds: float = 3.0) -> Optional[Set[str]]:
     result = {'stop_words': None}
@@ -105,7 +106,7 @@ def classify_names(names_list: List[str], max_length: int = 32):
     predictions = np.argmax(logits, axis=1).tolist()
 
     def get_category_by_id(id: int) -> str:
-        import pandas as pd
+
         try:
             df = pd.read_csv('category_table.csv')
             name = df.loc[df['Номер категории'] == id]['Категория'].tolist()[0]
