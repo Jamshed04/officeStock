@@ -17,13 +17,15 @@ def preprocess_names_list(names_list: list) -> list:
         name = names_list[i]
         text = name
         text = re.sub(r"«.*»", "", text)
-        text = re.sub(r"([(][^)]+[)])|([\d]+\s?[в]\s?[\d+]|[№][\d]+)", "", text)
+        text = re.sub(r"\".*\"", "", text)
+        text = re.sub(r"([(][^)]+[)])|([\d]+\s?[в]\s?[\d+]|[№][\d]+)|(-\s) | (\*)", "", text)
         text = re.sub(r"([\d]+[.,]?[\d]+[%])|([\d]+[%])|(\d+[+])", "", text)
-        text = re.sub(r"\b\d+\s?(г|гр|гр\.|мл|л|шт|уп|пакет|%)\b", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\d(?=[\.]|[\*]|[\,]).+", "", text)
+        text = re.sub(r"\b\d+\s?(г|гр|гр\.|мл|л|шт|уп|пакет|%|штуки|штук|штука|банки)\b", "", text, flags=re.IGNORECASE)
         text = re.sub(r"[ ]{2,}", " ", text)
         words = [w for w in text.lower().split() if w not in stop_words]
         text = " ".join(words)
-        names_list[i] = text
+        names_list[i] = text.strip()
     return names_list
 
 
