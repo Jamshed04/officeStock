@@ -32,9 +32,9 @@ class Warehouse(IntIdPkMixin, Base):
 
 
 class Receipt(IntIdPkMixin, Base):
-    order_id: Mapped[int] = mapped_column(
-        ForeignKey("orders.id"),
-        nullable=False
+    order_name: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True
     )
     fiscal_number: Mapped[str | None] = mapped_column(
         String(50),
@@ -72,9 +72,6 @@ class Receipt(IntIdPkMixin, Base):
     )
 
     # Связи
-    order: Mapped["Order"] = relationship(
-        back_populates="receipts"
-    )
     uploader: Mapped["User"] = relationship(
         back_populates="uploaded_receipts",
         foreign_keys=[user_id]
@@ -84,7 +81,7 @@ class Receipt(IntIdPkMixin, Base):
     )
 
     def __repr__(self):
-        return f"<Receipt(id={self.id}, заказ_id={self.order_id}, сумма={self.sum})>"
+        return f"<Receipt(id={self.id}, заказ='{self.order_name}', сумма={self.sum})>"
 
 
 class ReceiptItem(IntIdPkMixin, Base):

@@ -15,20 +15,11 @@ from core.schemas.receipt import (
     QRCodeParseResponse,
     QRCodeData,
     QRCodeItem,
-    OrderCreate,
-    OrderRead,
-    OrderListItem,
 )
 from crud.receipt import (
     prepare_receipt_preview,
     save_receipt,
     get_receipt_by_id,
-    get_receipts_by_order,
-)
-from crud.orders import (
-    create_order,
-    get_all_orders,
-    get_order_by_id,
 )
 
 router = APIRouter(
@@ -46,56 +37,7 @@ qr_scanner = QRCodeScanner(
 
 
 # ============================================================================
-# ORDERS - Управление заказами
-# ============================================================================
-
-@router.post("/orders", response_model=OrderRead, status_code=status.HTTP_201_CREATED)
-async def create_new_order(
-        order_data: OrderCreate,
-        session: Annotated[AsyncSession, Depends(db_helper.session_getter)],
-        user: User = Depends(current_user),
-):
-    """
-    Создать новый заказ.
-
-    Проверяет, что заказа с таким названием еще нет.
-    """
-    try:
-        order = await create_order(session, order_data, user.id)
-        return order
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        )
-
-
-@router.get("/orders", response_model=list[OrderListItem])
-async def get_orders_list(
-        session: Annotated[AsyncSession, Depends(db_helper.session_getter)],
-        skip: int = 0,
-        limit: int = 100,
-        user: User = Depends(current_user),
-):
-    """
-    Получить список всех заказов (название и описание).
-
-    - **skip**: количество пропускаемых записей
-    - **limit**: максимум записей
-    """
-    orders = await get_all_orders(session, skip, limit)
-    return [
-        OrderListItem(
-            id=order.id,
-            name=order.name,
-            description=order.description,
-        )
-        for order in orders
-    ]
-
-
-# ============================================================================
-# RECEIPTS - Работа с чеками (новая логика)
+# RECEIPTS - Работа с чеками
 # ============================================================================
 
 @router.post("/parse-qr", response_model=QRCodeParseResponse)
@@ -201,18 +143,10 @@ async def validate_receipt(
 
     Клиент показывает оба чека пользователю для выбора.
     """
-    # Проверяем существование заказа
-    order = await get_order_by_id(session, request.order_id)
-    if not order:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Заказ с ID {request.order_id} не найден",
-        )
-
     # Подготавливаем предпросмотр
     preview = await prepare_receipt_preview(
         session,
-        request.order_id,
+        request.order_name,
         request.qr_data,
     )
 
@@ -231,24 +165,16 @@ async def confirm_and_save_receipt(
     Шаг 2: Пользователь выбрал чек (новый или старый) и нажал "Подтвердить"
 
     Сервер:
-    1. Проверяет существование заказа
-    2. Создает чек в БД
-    3. Для каждого товара создает/находит Product в каталоге
-    4. Создает ReceiptItem с привязкой к Product
+    1. Создает чек в БД
+    2. Для каждого товара создает/находит Product в каталоге
+    3. Создает ReceiptItem с привязкой к Product
+    4. Обновляет остатки на складе
     5. Возвращает сохраненный чек
     """
-    # Проверяем существование заказа
-    order = await get_order_by_id(session, request.order_id)
-    if not order:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Заказ с ID {request.order_id} не найден",
-        )
-
     # Сохраняем чек
     receipt = await save_receipt(
         session=session,
-        order_id=request.order_id,
+        order_name=request.order_name,
         fiscal_number=request.fiscal_number,
         fiscal_document=request.fiscal_document,
         fiscal_sign=request.fiscal_sign,
@@ -282,22 +208,15 @@ async def get_receipt(
     return receipt
 
 
-@router.get("/order/{order_id}/receipts", response_model=list[ReceiptRead])
-async def get_order_receipts(
-        order_id: int,
-        session: Annotated[AsyncSession, Depends(db_helper.session_getter)],
-        user: User = Depends(current_user),
-):
-    """
-    Получить все чеки по заказу.
-    """
-    # Проверяем существование заказа
-    order = await get_order_by_id(session, order_id)
-    if not order:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Заказ с ID {order_id} не найден",
-        )
-
-    receipts = await get_receipts_by_order(session, order_id)
-    return receipts
+# @router.get("/", response_model=list[ReceiptRead])
+# async def get_all_receipts_list(
+#         session: Annotated[AsyncSession, Depends(db_helper.session_getter)],
+#         user: User = Depends(current_user),
+#         skip: int = 0,
+#         limit: int = 100,
+# ):
+#     """
+#     Получить список всех чеков.
+#     """
+#     receipts = await get_all_receipts(session, skip, limit)
+#     return receipts

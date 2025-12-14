@@ -5,15 +5,8 @@ from pydantic import EmailStr, Field
 class UserRead(schemas.BaseUser[int]):
     name: str
     position: str | None = None
-    roles: list[str] = []
-
-    @classmethod
-    def from_orm(cls, obj):
-        """Преобразование ORM объекта с ролями"""
-        data = super().from_orm(obj)
-        if hasattr(obj, 'roles'):
-            data.roles = [role.role_name for role in obj.roles]
-        return data
+    role_id: int | None = None
+    role_name: str | None = None
 
     class Config:
         from_attributes = True
@@ -21,7 +14,10 @@ class UserRead(schemas.BaseUser[int]):
 
 class UserCreate(schemas.BaseUserCreate):
     name: str
-    position: str | None = None
+    role_id: int | None = None
+
+class UserCreateWithRole(UserCreate):
+    role_name: str | None = Field(None, description="Название роли пользователя")
 
 
 class UserUpdate(schemas.BaseUserUpdate):
@@ -33,7 +29,7 @@ class UserCreateAdmin(schemas.BaseUserCreate):
     name: str = Field(..., min_length=1, max_length=255)
     position: str | None = Field(None, max_length=255)
     is_superuser: bool = False
-    role_ids: list[int] | None = Field(None, description="ID ролей для назначения")
+    role_name: str | None = Field(None, description="Название роли для назначения")
 
 
 class UserUpdateAdmin(schemas.BaseModel):
@@ -41,7 +37,7 @@ class UserUpdateAdmin(schemas.BaseModel):
     name: str | None = Field(None, min_length=1, max_length=255)
     position: str | None = Field(None, max_length=255)
     is_superuser: bool | None = None
-    role_ids: list[int] | None = Field(None, description="ID ролей (заменяет текущие)")
+    role_name: str | None = Field(None, description="Название роли")
 
 
 class ChangePasswordRequest(schemas.BaseModel):

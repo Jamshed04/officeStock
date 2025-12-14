@@ -26,10 +26,27 @@ async def get_all_users(
     skip: int = 0,
     limit: int = 100,
 ):
-    stmt = select(User).options(selectinload(User.roles)).offset(skip).limit(limit)
+    stmt = select(User).options(selectinload(User.role)).offset(skip).limit(limit)
     result = await session.execute(stmt)
     users = result.scalars().all()
-    return users
+
+    # Добавляем role_name для каждого пользователя
+    users_list = []
+    for user in users:
+        user_dict = {
+            "id": user.id,
+            "email": user.email,
+            "name": user.name,
+            "position": user.position,
+            "is_active": user.is_active,
+            "is_superuser": user.is_superuser,
+            "is_verified": user.is_verified,
+            "role_id": user.role_id,
+            "role_name": user.role.role_name if user.role else None,
+        }
+        users_list.append(UserRead(**user_dict))
+
+    return users_list
 
 
 @router.post("/", response_model=UserRead, status_code=status.HTTP_201_CREATED)
@@ -52,6 +69,19 @@ async def create_user_by_admin(
     password_helper = PasswordHelper()
     password_hash = password_helper.hash(user_data.password)
 
+    # Проверяем существование роли если указана
+    if user_data.role_name:
+        stmt = select(Role).where(Role.role_name == user_data.role_name)
+        result = await session.execute(stmt)
+        role = result.scalar_one_or_none()
+
+        if not role:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Роль не найдена",
+            )
+        role_id = role.id
+
     # Создаем пользователя
     new_user = User(
         email=str(user_data.email),
@@ -59,21 +89,25 @@ async def create_user_by_admin(
         name=user_data.name,
         position=user_data.position,
         is_superuser=user_data.is_superuser,
+        role_id=role_id,
     )
 
     session.add(new_user)
-    await session.flush()
-
-    if user_data.role_ids:
-        stmt = select(Role).where(Role.id.in_(user_data.role_ids))
-        result = await session.execute(stmt)
-        roles = result.scalars().all()
-        new_user.roles.extend(roles)
-
     await session.commit()
-    await session.refresh(new_user, ["roles"])
+    await session.refresh(new_user, ["role"])
 
-    return new_user
+    # Формируем ответ
+    return UserRead(
+        id=new_user.id,
+        email=new_user.email,
+        name=new_user.name,
+        position=new_user.position,
+        is_active=new_user.is_active,
+        is_superuser=new_user.is_superuser,
+        is_verified=new_user.is_verified,
+        role_id=new_user.role_id,
+        role_name=new_user.role.role_name if new_user.role else None,
+    )
 
 
 @router.patch("/{user_id}", response_model=UserRead)
@@ -83,7 +117,7 @@ async def update_user_by_admin(
     session: Annotated[AsyncSession, Depends(db_helper.session_getter)],
     current_user: User = Depends(require_permission(Permission.USER_UPDATE)),
 ):
-    stmt = select(User).where(User.id == user_id).options(selectinload(User.roles))
+    stmt = select(User).where(User.id == user_id).options(selectinload(User.role))
     result = await session.execute(stmt)
     user = result.scalar_one_or_none()
 
@@ -104,20 +138,37 @@ async def update_user_by_admin(
                 detail="Пользователь с таким email уже существует",
             )
 
-    update_data = user_update.model_dump(exclude_unset=True, exclude={"role_ids"})
+    # Проверяем роль если указана
+    if user_update.role_name is not None:
+        stmt = select(Role).where(Role.role_name == user_update.role_name)
+        result = await session.execute(stmt)
+        role = result.scalar_one_or_none()
+
+        if not role:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Роль не найдена",
+            )
+        user.role_id = role.id
+
+    update_data = user_update.model_dump(exclude_unset=True, exclude={"role_name"})
     for field, value in update_data.items():
         setattr(user, field, value)
 
-    if user_update.role_ids is not None:
-        stmt = select(Role).where(Role.id.in_(user_update.role_ids))
-        result = await session.execute(stmt)
-        roles = list(result.scalars().all())
-        user.roles = roles
-
     await session.commit()
-    await session.refresh(user,  ["roles"])
+    await session.refresh(user, ["role"])
 
-    return user
+    return UserRead(
+        id=user.id,
+        email=user.email,
+        name=user.name,
+        position=user.position,
+        is_active=user.is_active,
+        is_superuser=user.is_superuser,
+        is_verified=user.is_verified,
+        role_id=user.role_id,
+        role_name=user.role.role_name if user.role else None,
+    )
 
 
 @router.post("/{user_id}/change-password", status_code=status.HTTP_204_NO_CONTENT)

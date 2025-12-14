@@ -55,9 +55,6 @@ class Product(IntIdPkMixin, Base):
     receipt_items: Mapped[list["ReceiptItem"]] = relationship(
         back_populates="product"
     )
-    write_off_requests: Mapped[list["WriteOffRequest"]] = relationship(
-        back_populates="product"
-    )
 
     def __repr__(self):
         return f"<Product(id={self.id}, название='{self.name}')>"

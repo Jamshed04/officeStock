@@ -43,14 +43,14 @@ class ReceiptBase(BaseModel):
 
 class ReceiptCreate(ReceiptBase):
     """Схема для создания чека"""
-    order_id: int = Field(..., description="ID заказа")
+    order_name: str | None = Field(None, max_length=255, description="Название заказа")
     items: list[ReceiptItemCreate] = Field(..., min_length=1, description="Позиции чека")
 
 
 class ReceiptRead(ReceiptBase):
     """Схема для чтения чека"""
     id: int | None = Field(None, description="ID чека (None для нового)")
-    order_id: int
+    order_name: str | None = None
     is_duplicate: bool = False
     user_id: int | None = None
     date_create: datetime | None = None
@@ -97,13 +97,13 @@ class QRCodeParseResponse(BaseModel):
 
 class ReceiptValidateRequest(BaseModel):
     """Запрос на валидацию чека"""
-    order_id: int
+    order_name: str | None
     qr_data: QRCodeData
 
 
 class ReceiptConfirmRequest(BaseModel):
     """Подтверждение чека пользователем"""
-    order_id: int
+    order_name: str | None
     fiscal_number: str | None
     fiscal_document: str | None
     fiscal_sign: str | None
@@ -111,33 +111,3 @@ class ReceiptConfirmRequest(BaseModel):
     date_buy: datetime
     name_supplier: str | None
     items: list[ReceiptItemBase]
-
-
-class OrderCreate(BaseModel):
-    """Создание заказа"""
-    name: str = Field(..., min_length=1, max_length=255)
-    description: str | None = Field(None, max_length=1000)
-
-
-class OrderRead(BaseModel):
-    """Чтение заказа"""
-    id: int
-    name: str
-    description: str | None
-    status_id: int
-    user_id: int
-    date_create: datetime
-    date_update: datetime
-
-    class Config:
-        from_attributes = True
-
-
-class OrderListItem(BaseModel):
-    """Элемент списка заказов"""
-    id: int
-    name: str
-    description: str | None
-
-    class Config:
-        from_attributes = True

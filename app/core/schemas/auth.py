@@ -15,7 +15,7 @@ class UserAuthResponse(BaseModel):
     user_id: int
     user_name: str
     email: str
-    roles: list[str]
+    role: str | None
     is_superuser: bool
     access_token: str
 
@@ -26,7 +26,7 @@ class UserMeResponse(BaseModel):
     user_name: str
     email: str
     position: str | None
-    roles: list[str]
+    role: str | None
     is_superuser: bool
     permissions: list[str]
 

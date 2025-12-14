@@ -12,17 +12,19 @@ current_superuser = fastapi_users.current_user(active=True, superuser=True)
 
 async def get_user_roles(user: User = Depends(current_user)) -> list[str]:
     """
-    Получить список ролей текущего пользователя.
+    Получить роль текущего пользователя.
 
-    Если пользователь - суперпользователь, автоматически добавляется роль admin.
+    Если пользователь - суперпользователь, автоматически возвращается роль admin.
     """
-    roles = [role.role_name for role in user.roles]
-
     # Суперпользователь автоматически получает роль admin
-    if user.is_superuser and RoleEnum.ADMIN.value not in roles:
-        roles.append(RoleEnum.ADMIN.value)
+    if user.is_superuser:
+        return [RoleEnum.ADMIN.value]
 
-    return roles
+    # Возвращаем роль пользователя, если она есть
+    if user.role:
+        return [user.role.role_name]
+
+    return []
 
 
 def require_permission(permission: Permission) -> Callable:
@@ -44,16 +46,11 @@ def require_permission(permission: Permission) -> Callable:
         if user.is_superuser:
             return user
 
-        # Получаем роли пользователя
-        user_roles = [role.role_name for role in user.roles]
+        # Получаем роль пользователя
+        user_role = user.role.role_name if user.role else None
 
         # Проверяем наличие разрешения
-        has_perm = any(
-            has_permission(role, permission)
-            for role in user_roles
-        )
-
-        if not has_perm:
+        if not user_role or not has_permission(user_role, permission):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Недостаточно прав для выполнения операции. Требуется: {permission.value}",
@@ -84,9 +81,9 @@ def require_role(required_role: RoleEnum) -> Callable:
             return user
 
         # Проверяем наличие роли
-        user_roles = [role.role_name for role in user.roles]
+        user_role = user.role.role_name if user.role else None
 
-        if required_role.value not in user_roles:
+        if user_role != required_role.value:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Недостаточно прав. Требуется роль: {required_role.value}",
@@ -116,13 +113,11 @@ def require_any_role(*required_roles: RoleEnum) -> Callable:
         if user.is_superuser:
             return user
 
-        # Проверяем наличие хотя бы одной роли
-        user_roles = [role.role_name for role in user.roles]
+        # Проверяем наличие хотя бы одной из требуемых ролей
+        user_role = user.role.role_name if user.role else None
         required_role_values = [r.value for r in required_roles]
 
-        has_role = any(role in required_role_values for role in user_roles)
-
-        if not has_role:
+        if user_role not in required_role_values:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Недостаточно прав. Требуется одна из ролей: {', '.join(required_role_values)}",

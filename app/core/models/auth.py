@@ -1,6 +1,6 @@
 from datetime import datetime
-from typing import TYPE_CHECKING
-from sqlalchemy import String, Table, Column, Integer, ForeignKey, func
+from typing import TYPE_CHECKING, Optional
+from sqlalchemy import String, Integer, ForeignKey, func
 from fastapi_users_db_sqlalchemy import SQLAlchemyBaseUserTable, SQLAlchemyUserDatabase
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -9,14 +9,7 @@ from .mixins.id_int_pk import IntIdPkMixin
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
-    from core.models import AccessToken, Order, Receipt, WriteOffRequest, Role
-
-user_roles = Table(
-    "user_roles",
-    Base.metadata,
-    Column("user_id", Integer, ForeignKey("users.id"), primary_key=True),
-    Column("role_id", Integer, ForeignKey("roles.id"), primary_key=True),
-)
+    from core.models import AccessToken, Receipt, Role
 
 
 class Role(IntIdPkMixin, Base):
@@ -26,10 +19,10 @@ class Role(IntIdPkMixin, Base):
         nullable=False
     )
 
-    # Связь с пользователями через промежуточную таблицу
+    # Связь с пользователями (один ко многим)
     users: Mapped[list["User"]] = relationship(
-        secondary="user_roles",
-        back_populates="roles"
+        back_populates="role",
+        lazy="raise"
     )
 
     def __repr__(self):
@@ -49,25 +42,21 @@ class User(Base, IntIdPkMixin, SQLAlchemyBaseUserTable[int]):
         server_default=func.now()
     )
 
-    # Связи
-    roles: Mapped[list["Role"]] = relationship(
-        secondary="user_roles",
-        back_populates="users",
-        lazy="raise"
+    # Внешний ключ на роль
+    role_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("roles.id", ondelete="SET NULL"),
+        nullable=True
     )
-    created_orders: Mapped[list["Order"]] = relationship(
-        back_populates="creator",
-        foreign_keys="[Order.user_id]",
+
+    # Связи
+    role:  Mapped[Optional["Role"]] = relationship(
+        back_populates="users",
         lazy="raise"
     )
     uploaded_receipts: Mapped[list["Receipt"]] = relationship(
         back_populates="uploader",
         foreign_keys="[Receipt.user_id]",
-        lazy="raise"
-    )
-    write_off_requests: Mapped[list["WriteOffRequest"]] = relationship(
-        back_populates="creator",
-        foreign_keys="[WriteOffRequest.user_id]",
         lazy="raise"
     )
 

@@ -19,7 +19,7 @@ get_users_db_context = contextlib.asynccontextmanager(get_user_db)
 get_user_manager_context = contextlib.asynccontextmanager(get_user_manager)
 
 
-default_email = EmailStr(getenv("DEFAULT_EMAIL", "admin@admin.com"))
+default_email = EmailStr(getenv("DEFAULT_EMAIL", "admin9@admin.com"))
 default_name = getenv("DEFAULT_NAME", "Администратор")
 default_position = getenv("DEFAULT_POSITION", "Admin")
 default_password = getenv("DEFAULT_PASSWORD", "tpu")
