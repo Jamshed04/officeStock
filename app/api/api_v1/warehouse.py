@@ -18,7 +18,7 @@ from core.schemas.warehouse import (
 from core.permissions import Permission
 
 router = APIRouter(
-    prefix=settings.api.v1.prefix + "/warehouse",
+    prefix=settings.api.v1.warehouse,
     tags=["Warehouse"],
 )
 
@@ -108,13 +108,6 @@ async def update_warehouse_product(
 
     Фронт отправляет новый остаток после списания товара.
     """
-    # Проверяем что product_id совпадает
-    if product_id != update_data.product_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="ID товара в URL и в теле запроса не совпадают",
-        )
-
     # Получаем запись склада
     stmt = (
         select(Warehouse)
@@ -132,11 +125,31 @@ async def update_warehouse_product(
             detail="Товар не найден на складе",
         )
 
+    # Если остаток = 0, удаляем товар из склада
+    if update_data.rest == 0:
+        await session.delete(warehouse_item)
+        await session.commit()
+        raise HTTPException(
+            status_code=status.HTTP_200_OK,
+            detail="Товар удален из склада (остаток = 0)",
+        )
+
     # Обновляем остаток
     warehouse_item.rest = update_data.rest
 
     await session.commit()
-    await session.refresh(warehouse_item, ["product"])
+
+    # Обновляем объект и загружаем все связи
+    await session.refresh(warehouse_item)
+    stmt_reload = (
+        select(Warehouse)
+        .where(Warehouse.id == warehouse_item.id)
+        .options(
+            selectinload(Warehouse.product).selectinload(Product.category)
+        )
+    )
+    result_reload = await session.execute(stmt_reload)
+    warehouse_item = result_reload.scalar_one()
 
     return WarehouseRead(
         id=warehouse_item.id,

@@ -8,9 +8,9 @@ from pydantic import BaseModel, Field
 class ReceiptItemBase(BaseModel):
     """Базовая схема позиции чека"""
     product_name: str = Field(..., max_length=500, description="Название товара из чека")
-    count_product: Decimal = Field(..., gt=0, description="Количество товара")
-    unit_price: Decimal = Field(..., ge=0, description="Цена за единицу")
-    sum: Decimal = Field(..., ge=0, description="Общая стоимость позиции")
+    count_product: float = Field(..., gt=0, description="Количество товара")
+    unit_price: float = Field(..., ge=0, description="Цена за единицу")
+    sum: float = Field(..., ge=0, description="Общая стоимость позиции")
     product_id: int | None = Field(None, description="ID товара из каталога (если сопоставлен)")
     category_name: str | None = Field(None, description="Категория товара")
 
@@ -28,6 +28,27 @@ class ReceiptItemRead(ReceiptItemBase):
     class Config:
         from_attributes = True
 
+    @classmethod
+    def extract_category_name(cls, obj, **kwargs):
+        """Переопределяем валидацию для автоматического заполнения category_name"""
+        category_name = None
+        if hasattr(obj, 'product') and obj.product:
+            if hasattr(obj.product, 'category') and obj.product.category:
+                category_name = obj.product.category.name
+
+        # Создаем словарь данных
+        data = {
+            'id': obj.id,
+            'receipt_id': obj.receipt_id,
+            'product_name': obj.product_name,
+            'count_product': float(obj.count_product),
+            'unit_price': float(obj.unit_price),
+            'sum': float(obj.sum),
+            'product_id': obj.product_id if hasattr(obj, 'product_id') else None,
+            'category_name': category_name,
+        }
+        return cls(**data)
+
 
 # === Схемы для чека ===
 
@@ -36,7 +57,7 @@ class ReceiptBase(BaseModel):
     fiscal_number: str | None = Field(None, max_length=50, description="ФН из QR-кода")
     fiscal_document: str | None = Field(None, max_length=50, description="ФД из QR-кода")
     fiscal_sign: str | None = Field(None, max_length=50, description="ФП из QR-кода")
-    sum: Decimal = Field(..., ge=0, description="Общая сумма чека")
+    sum: float = Field(..., ge=0, description="Общая сумма чека")
     date_buy: datetime = Field(..., description="Дата покупки")
     name_supplier: str | None = Field(None, max_length=255, description="Название поставщика")
 
@@ -51,7 +72,6 @@ class ReceiptRead(ReceiptBase):
     """Схема для чтения чека"""
     id: int | None = Field(None, description="ID чека (None для нового)")
     order_name: str | None = None
-    is_duplicate: bool = False
     user_id: int | None = None
     date_create: datetime | None = None
     items: list[ReceiptItemRead] = []
@@ -95,6 +115,15 @@ class QRCodeParseResponse(BaseModel):
     error: str | None = None
 
 
+class ReceiptUploadResponse(BaseModel):
+    """Ответ на загрузку фото чека"""
+    success: bool
+    is_duplicate: bool = False
+    message: str | None = None
+    receipt: ReceiptRead | None = None
+    error: str | None = None
+
+
 class ReceiptValidateRequest(BaseModel):
     """Запрос на валидацию чека"""
     order_name: str | None
@@ -107,7 +136,7 @@ class ReceiptConfirmRequest(BaseModel):
     fiscal_number: str | None
     fiscal_document: str | None
     fiscal_sign: str | None
-    sum: Decimal
+    sum: float
     date_buy: datetime
     name_supplier: str | None
     items: list[ReceiptItemBase]

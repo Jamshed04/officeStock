@@ -14,6 +14,8 @@ class ApiV1Prefix(BaseModel):
     users: str = "/users"
     admin_users: str = "/admin/users"
     receipts: str = "/receipts"
+    warehouse: str = "/warehouse"
+    categories: str = "/categories"
 
 
 class ApiPrefix(BaseModel):

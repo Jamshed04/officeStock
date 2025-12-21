@@ -18,5 +18,4 @@ class WarehouseRead(BaseModel):
 
 class WarehouseUpdate(BaseModel):
     """Обновление остатка товара на складе"""
-    product_id: int = Field(..., description="ID товара")
     rest: Decimal = Field(..., ge=0, description="Новый остаток товара")

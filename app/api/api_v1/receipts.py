@@ -9,18 +9,16 @@ from core.models import User, db_helper
 from utils import QRCodeScanner
 from core.schemas.receipt import (
     ReceiptRead,
-    ReceiptPreview,
-    ReceiptValidateRequest,
     ReceiptConfirmRequest,
-    QRCodeParseResponse,
-    QRCodeData,
-    QRCodeItem,
+    ReceiptUploadResponse,
 )
 from crud.receipt import (
-    prepare_receipt_preview,
     save_receipt,
     get_receipt_by_id,
+    find_duplicate_receipt,
+    get_all_receipts,
 )
+from crud.category import categorize_products
 
 router = APIRouter(
     prefix=settings.api.v1.receipts,
@@ -40,44 +38,51 @@ qr_scanner = QRCodeScanner(
 # RECEIPTS - Работа с чеками
 # ============================================================================
 
-@router.post("/parse-qr", response_model=QRCodeParseResponse)
-async def parse_qr_code(file: UploadFile = File(...)):
+@router.post("/upload", response_model=ReceiptUploadResponse)
+async def upload_receipt_photo(
+        file: UploadFile = File(...),
+        session: Annotated[AsyncSession, Depends(db_helper.session_getter)] = None,
+        user: User = Depends(current_user),
+):
     """
-    Парсинг QR-кода с фотографии чека.
+    Загрузить фото чека и получить обработанные данные.
 
-    Принимает изображение чека, сканирует QR-код и получает данные о чеке от API.
+    Объединенный эндпоинт, который:
+    1. Принимает фото чека
+    2. Сканирует QR-код и получает данные от API
+    3. Проверяет, существует ли уже такой чек
+    4. Если чек уже есть - возвращает сообщение о дубликате
+    5. Если чек новый - категоризирует товары и возвращает чек с категориями
 
-    Поддерживает:
-    - Фотографии чеков целиком (не только QR-код)
-    - Разные углы съёмки
-    - Плохое освещение
-    - Низкое качество изображения
+    Args:
+        file: Фото чека (изображение)
+        session: Сессия БД
+        user: Текущий пользователь
 
     Returns:
-        QRCodeParseResponse с данными чека или ошибкой
+        ReceiptUploadResponse с данными чека или сообщением о дубликате
     """
     # Проверяем тип файла
     if not file.content_type or not file.content_type.startswith("image/"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Файл должен быть изображением (JPEG, PNG и т.д.)"
+        return ReceiptUploadResponse(
+            success=False,
+            error="Файл должен быть изображением (JPEG, PNG и т.д.)"
         )
 
     # Читаем изображение
     try:
         image_bytes = await file.read()
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Не удалось прочитать файл: {str(e)}"
+        return ReceiptUploadResponse(
+            success=False,
+            error=f"Не удалось прочитать файл: {str(e)}"
         )
 
-    # Сканируем QR-код и получаем данные
+    # Сканируем QR-код и получаем данные от API
     result = await qr_scanner.scan_receipt_image(image_bytes)
-    print("DEBUG: QR raw:", result.get("qr_raw"))
 
     if not result["success"]:
-        return QRCodeParseResponse(
+        return ReceiptUploadResponse(
             success=False,
             error=result.get("message", "Не удалось обработать изображение")
         )
@@ -85,72 +90,92 @@ async def parse_qr_code(file: UploadFile = File(...)):
     # Проверяем успешность получения данных от API
     api_response = result.get("api_response", {})
     if not api_response.get("success"):
-        return QRCodeParseResponse(
+        return ReceiptUploadResponse(
             success=False,
             error=api_response.get("error", "API вернул ошибку")
         )
 
     # Извлекаем данные чека из API ответа
     try:
+        from datetime import datetime
+        from core.schemas.receipt import ReceiptItemRead
+
         api_data = api_response.get("data", {}).get("json", {})
 
-        # Формируем данные чека
-        qr_data = QRCodeData(
-            fiscal_number=result["fns"].get("fn"),
-            fiscal_document=result["fns"].get("i"),
-            fiscal_sign=result["fns"].get("fp"),
-            date_buy=result["fns"].get("datetime", api_data.get("dateTime", "")),
-            sum=float(api_data.get("totalSum", 0)) / 100,  # API возвращает сумму в копейках
-            name_supplier=api_data.get("user", api_data.get("userInn", "")),
-            items=[
-                QRCodeItem(
-                    name=item.get("name", ""),
-                    price=float(item.get("price", 0)) / 100,
-                    quantity=float(item.get("quantity", 0)),
-                    sum=float(item.get("sum", 0)) / 100,
-                )
-                for item in result.get("items", [])
-            ],
+        # Получаем фискальные данные
+        fiscal_number = result["fns"].get("fn")
+        fiscal_document = result["fns"].get("i")
+        fiscal_sign = result["fns"].get("fp")
+
+        # Проверяем дубликаты
+        existing_receipt = await find_duplicate_receipt(
+            session,
+            fiscal_number,
+            fiscal_document,
+            fiscal_sign,
         )
 
-        return QRCodeParseResponse(
+        if existing_receipt:
+            return ReceiptUploadResponse(
+                success=True,
+                is_duplicate=True,
+                message="Чек с такими фискальными данными уже существует в системе",
+            )
+
+        # Категоризируем товары
+        items_data = result.get("items", [])
+        product_names = [item.get("name", "") for item in items_data]
+        categories = await categorize_products(product_names)
+
+        # Формируем данные чека
+        date_buy_str = result["fns"].get("datetime", api_data.get("dateTime", ""))
+        date_buy = datetime.fromisoformat(
+            date_buy_str.replace('T', ' ').split('.')[0]
+        )
+
+        # Создаем позиции чека с категориями
+        receipt_items = []
+        for item in items_data:
+            item_name = item.get("name", "")
+            receipt_items.append(
+                ReceiptItemRead(
+                    id=0,  # Временный ID для нового чека
+                    receipt_id=0,  # Временный ID для нового чека
+                    product_name=item_name,
+                    count_product=float(item.get("quantity", 0)),
+                    unit_price=float(item.get("price", 0)) / 100,
+                    sum=float(item.get("sum", 0)) / 100,
+                    category_name=categories.get(item_name),
+                )
+            )
+
+        # Формируем новый чек
+        new_receipt = ReceiptRead(
+            id=None,
+            order_name=None,
+            fiscal_number=fiscal_number,
+            fiscal_document=fiscal_document,
+            fiscal_sign=fiscal_sign,
+            sum=float(api_data.get("totalSum", 0)) / 100,
+            date_buy=date_buy,
+            name_supplier=api_data.get("user", api_data.get("userInn", "")),
+            user_id=user.id,
+            date_create=None,
+            items=receipt_items,
+        )
+
+        return ReceiptUploadResponse(
             success=True,
-            data=qr_data,
+            is_duplicate=False,
+            receipt=new_receipt,
+            message="Чек успешно обработан и категоризирован",
         )
 
     except Exception as e:
-        return QRCodeParseResponse(
+        return ReceiptUploadResponse(
             success=False,
             error=f"Ошибка обработки данных чека: {str(e)}"
         )
-
-
-@router.post("/validate", response_model=ReceiptPreview)
-async def validate_receipt(
-        request: ReceiptValidateRequest,
-        session: Annotated[AsyncSession, Depends(db_helper.session_getter)],
-        user: User = Depends(current_user),
-):
-    """
-    Валидировать чек перед сохранением.
-
-    Шаг 1: Клиент отправляет данные из QR-кода
-
-    Сервер:
-    1. Проверяет дубликаты (возвращает старый чек если есть)
-    2. Категоризирует товары через AI/ML
-    3. Возвращает новый чек с категориями + старый чек (если дубликат)
-
-    Клиент показывает оба чека пользователю для выбора.
-    """
-    # Подготавливаем предпросмотр
-    preview = await prepare_receipt_preview(
-        session,
-        request.order_name,
-        request.qr_data,
-    )
-
-    return preview
 
 
 @router.post("/confirm", response_model=ReceiptRead, status_code=status.HTTP_201_CREATED)
@@ -188,6 +213,20 @@ async def confirm_and_save_receipt(
     return receipt
 
 
+@router.get("/", response_model=list[ReceiptRead])
+async def get_all_receipts_list(
+        session: Annotated[AsyncSession, Depends(db_helper.session_getter)],
+        user: User = Depends(current_user),
+        skip: int = 0,
+        limit: int = 100,
+):
+    """
+    Получить список всех чеков с пагинацией.
+    """
+    receipts = await get_all_receipts(session, skip, limit)
+    return receipts
+
+
 @router.get("/{receipt_id}", response_model=ReceiptRead)
 async def get_receipt(
         receipt_id: int,
@@ -206,17 +245,3 @@ async def get_receipt(
         )
 
     return receipt
-
-
-# @router.get("/", response_model=list[ReceiptRead])
-# async def get_all_receipts_list(
-#         session: Annotated[AsyncSession, Depends(db_helper.session_getter)],
-#         user: User = Depends(current_user),
-#         skip: int = 0,
-#         limit: int = 100,
-# ):
-#     """
-#     Получить список всех чеков.
-#     """
-#     receipts = await get_all_receipts(session, skip, limit)
-#     return receipts

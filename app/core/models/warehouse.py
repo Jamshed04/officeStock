@@ -1,7 +1,8 @@
 from datetime import datetime
 from decimal import Decimal
-from sqlalchemy import String, ForeignKey, DECIMAL, Boolean, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import String, ForeignKey, DECIMAL, Boolean, func, Integer
+
 
 from .base import Base
 from .mixins.id_int_pk import IntIdPkMixin
@@ -120,3 +121,46 @@ class ReceiptItem(IntIdPkMixin, Base):
 
     def __repr__(self):
         return f"<ReceiptItem(id={self.id}, название='{self.product_name}', кол-во={self.count_product})>"
+
+
+
+class WriteOffSchedule(IntIdPkMixin, Base):
+    """Расписание автоматического списания товаров"""
+    product_id: Mapped[int] = mapped_column(
+        ForeignKey("products.id"),
+        nullable=False,
+        unique=True  # Один товар - одно расписание
+    )
+    interval_days: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        comment="Интервал списания в днях (раз в n дней)"
+    )
+    quantity_per_writeoff: Mapped[Decimal] = mapped_column(
+        DECIMAL(10, 3),
+        nullable=False,
+        default=1,
+        comment="Количество товара для списания за раз"
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+        comment="Активно ли расписание"
+    )
+    last_writeoff_date: Mapped[datetime | None] = mapped_column(
+        nullable=True,
+        comment="Дата последнего списания"
+    )
+    date_create: Mapped[datetime] = mapped_column(
+        server_default=func.now()
+    )
+
+    # Связь с товаром
+    product: Mapped["Product"] = relationship(
+        back_populates="writeoff_schedule"
+    )
+
+    def repr(self):
+        return f"<WriteOffSchedule(id={self.id}, товар_id={self.product_id}, интервал={self.interval_days} дней)>"

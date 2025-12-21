@@ -1,38 +1,38 @@
-import random
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
+import asyncio
 from core.models import Category
+from ml.model_loader import get_predictor
 
 
 async def categorize_products(product_names: list[str]) -> dict[str, str]:
-    """
-    ТЕСТОВАЯ функция категоризации товаров.
 
-    В продакшене здесь будет ML-модель или AI API для определения категории.
-    Сейчас возвращает случайную категорию из списка.
+    if not product_names:
+        return {}
 
-    Args:
-        product_names: Список названий товаров
+    predictor = get_predictor()
+    loop = asyncio.get_running_loop()
 
-    Returns:
-        Словарь {название_товара: категория}
-    """
-    # Тестовые категории
-    test_categories = [
-        "Молочные продукты",
-        "Канцтовары",
-        "Сладости",
-        "Лекарства",
-    ]
+    try:
+        ml_result = await loop.run_in_executor(
+            None,
+            predictor.predict,
+            product_names
+        )
 
-    result = {}
-    for product_name in product_names:
-        # В реальности здесь будет умная логика
-        # Пока просто случайная категория
-        result[product_name] = random.choice(test_categories)
+        if not ml_result:
+            return {name: "неизвестно" for name in product_names}
 
-    return result
+        categories = {
+            name: data[1] if data and len(data) > 1 and data[1] else "неизвестно"
+            for name, data in ml_result.items()
+        }
+
+        return categories
+
+    except Exception as e:
+        print(f"Ошибка при категоризации товаров: {e}")
+        return {name: "неизвестно" for name in product_names}
 
 
 async def get_category_by_name(
@@ -70,9 +70,10 @@ async def get_or_create_category(
     """
     category = await get_category_by_name(session, category_name)
 
-    if not category:
-        category = Category(name=category_name)
-        session.add(category)
-        await session.flush()
+    if category:
+        return category
 
+    category = Category(name=category_name)
+    session.add(category)
+    await session.flush()
     return category

@@ -1,13 +1,41 @@
 from typing import Callable
 from fastapi import Depends, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from api.api_v1.fastapi_users_router import fastapi_users
-from core.models import User
+from core.models import User, db_helper, Role
 from core.permissions import Permission, has_permission, RoleEnum
 
-# Базовые зависимости
-current_user = fastapi_users.current_user(active=True)
+# Базовые зависимости без загрузки ролей
+_current_user_base = fastapi_users.current_user(active=True)
 current_superuser = fastapi_users.current_user(active=True, superuser=True)
+
+
+async def current_user(
+    user: User = Depends(_current_user_base),
+    session: AsyncSession = Depends(db_helper.session_getter),
+) -> User:
+    """
+    Получить текущего пользователя с загруженной ролью.
+    """
+    # Перезагружаем пользователя с ролью
+    stmt = (
+        select(User)
+        .where(User.id == user.id)
+        .options(selectinload(User.role))
+    )
+    result = await session.execute(stmt)
+    user_with_role = result.scalar_one_or_none()
+
+    if not user_with_role:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Пользователь не найден",
+        )
+
+    return user_with_role
 
 
 async def get_user_roles(user: User = Depends(current_user)) -> list[str]:

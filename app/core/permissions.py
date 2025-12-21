@@ -48,6 +48,11 @@ class Permission(str, Enum):
     WAREHOUSE_READ = "warehouse:read"
     WAREHOUSE_UPDATE = "warehouse:update"
 
+    # Управление категориями
+    CATEGORY_CREATE = "category:create"
+    CATEGORY_READ = "category:read"
+    CATEGORY_DELETE = "category:delete"
+
     # Заявки на списание
     WRITEOFF_CREATE = "writeoff:create"
     WRITEOFF_READ = "writeoff:read"
@@ -80,6 +85,9 @@ ROLE_PERMISSIONS: dict[RoleEnum, set[Permission]] = {
         Permission.RECEIPT_DELETE,
         Permission.WAREHOUSE_READ,
         Permission.WAREHOUSE_UPDATE,
+        Permission.CATEGORY_CREATE,
+        Permission.CATEGORY_READ,
+        Permission.CATEGORY_DELETE,
         Permission.WRITEOFF_CREATE,
         Permission.WRITEOFF_READ,
         Permission.WRITEOFF_APPROVE,
@@ -89,12 +97,17 @@ ROLE_PERMISSIONS: dict[RoleEnum, set[Permission]] = {
     },
     RoleEnum.HR_MANAGER: {
         # Управление пользователями + просмотр отчетов
-        Permission.USER_CREATE,
-        Permission.USER_READ,
-        Permission.USER_UPDATE,
-        Permission.USER_CHANGE_PASSWORD,
-        Permission.ROLE_ASSIGN,
-        Permission.ROLE_REVOKE,
+        Permission.RECEIPT_CREATE,
+        Permission.RECEIPT_READ,
+        Permission.RECEIPT_UPDATE,
+        Permission.RECEIPT_DELETE,
+        Permission.WAREHOUSE_READ,
+        Permission.WAREHOUSE_UPDATE,
+        Permission.CATEGORY_CREATE,
+        Permission.CATEGORY_READ,
+        Permission.CATEGORY_DELETE,
+        Permission.WRITEOFF_CREATE,
+        Permission.WRITEOFF_READ,
         Permission.REPORTS_VIEW,
         Permission.REPORTS_EXPORT,
     },
@@ -106,6 +119,11 @@ ROLE_PERMISSIONS: dict[RoleEnum, set[Permission]] = {
         Permission.RECEIPT_CREATE,
         Permission.RECEIPT_READ,
         Permission.WAREHOUSE_READ,
+        Permission.WAREHOUSE_READ,
+        Permission.WAREHOUSE_UPDATE,
+        Permission.CATEGORY_CREATE,
+        Permission.CATEGORY_READ,
+        Permission.CATEGORY_DELETE,
         Permission.WRITEOFF_CREATE,
         Permission.WRITEOFF_READ,
         Permission.REPORTS_VIEW,

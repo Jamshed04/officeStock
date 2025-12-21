@@ -19,10 +19,16 @@ get_users_db_context = contextlib.asynccontextmanager(get_user_db)
 get_user_manager_context = contextlib.asynccontextmanager(get_user_manager)
 
 
-default_email = EmailStr(getenv("DEFAULT_EMAIL", "admin9@admin.com"))
+# Почта админа
+default_email = EmailStr(getenv("DEFAULT_EMAIL", "admin10@admin.com"))
+
+# ФИО админа
 default_name = getenv("DEFAULT_NAME", "Администратор")
-default_position = getenv("DEFAULT_POSITION", "Admin")
+
+# Пароль для админа
 default_password = getenv("DEFAULT_PASSWORD", "tpu")
+
+default_role = getenv("DEFAULT_ROLE", 1)
 default_is_active = True
 default_is_superuser = True
 default_is_verified = True
@@ -42,7 +48,7 @@ async def create_user(
 async def create_superuser(
     email: EmailStr = default_email,
     name: str = default_name,
-    position: str | None = default_position,
+    role_id: int = default_role,
     password: str = default_password,
     is_active: bool = default_is_active,
     is_superuser: bool = default_is_superuser,
@@ -50,8 +56,8 @@ async def create_superuser(
 ):
     user_create = UserCreate(
         email=EmailStr(email),
+        role_id=role_id,
         name=name,
-        position=position,
         password=password,
         is_active=is_active,
         is_superuser=is_superuser,

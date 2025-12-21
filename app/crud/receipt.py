@@ -1,9 +1,11 @@
 from datetime import datetime
+from decimal import Decimal
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from core.models import Receipt, ReceiptItem, Product
+from core.models import Receipt, ReceiptItem, Product, Category
 from core.schemas.receipt import (
     ReceiptRead,
     ReceiptItemRead,
@@ -11,7 +13,8 @@ from core.schemas.receipt import (
     QRCodeData,
     ReceiptPreview,
 )
-from crud.category_service import categorize_products, get_category_by_name
+from crud.category import categorize_products, get_category_by_name, get_or_create_category
+from crud.warehouse import update_warehouse_stock
 
 
 async def find_duplicate_receipt(
@@ -44,7 +47,7 @@ async def find_duplicate_receipt(
 
 async def prepare_receipt_preview(
         session: AsyncSession,
-        order_id: int,
+        order_name: str | None,
         qr_data: QRCodeData,
 ) -> ReceiptPreview:
     """
@@ -56,7 +59,7 @@ async def prepare_receipt_preview(
 
     Args:
         session: Сессия БД
-        order_id: ID заказа
+        order_name: Название заказа
         qr_data: Данные из QR-кода
 
     Returns:
@@ -96,14 +99,13 @@ async def prepare_receipt_preview(
 
     new_receipt = ReceiptRead(
         id=None,  # Новый чек не имеет ID
-        order_id=order_id,
+        order_name=order_name,
         fiscal_number=qr_data.fiscal_number,
         fiscal_document=qr_data.fiscal_document,
         fiscal_sign=qr_data.fiscal_sign,
         sum=qr_data.sum,
         date_buy=date_buy,
         name_supplier=qr_data.name_supplier,
-        is_duplicate=False,
         user_id=None,
         date_create=None,
         items=new_items,
@@ -128,14 +130,13 @@ async def prepare_receipt_preview(
 
         existing_receipt_read = ReceiptRead(
             id=existing_receipt.id,
-            order_id=existing_receipt.order_id,
+            order_name=existing_receipt.order_name,
             fiscal_number=existing_receipt.fiscal_number,
             fiscal_document=existing_receipt.fiscal_document,
             fiscal_sign=existing_receipt.fiscal_sign,
             sum=existing_receipt.sum,
             date_buy=existing_receipt.date_buy,
             name_supplier=existing_receipt.name_supplier,
-            is_duplicate=existing_receipt.is_duplicate,
             user_id=existing_receipt.user_id,
             date_create=existing_receipt.date_create,
             items=existing_items,
@@ -173,11 +174,7 @@ async def get_or_create_product(
         return product
 
     # Если товара нет, создаем
-    category = await get_category_by_name(session, category_name)
-    if not category:
-        # Если категории нет, создаем (на случай если не заполнена таблица)
-        from crud.category_service import get_or_create_category
-        category = await get_or_create_category(session, category_name)
+    category = await get_or_create_category(session, category_name)
 
     product = Product(
         name=product_name,
@@ -191,7 +188,7 @@ async def get_or_create_product(
 
 async def save_receipt(
         session: AsyncSession,
-        order_id: int,
+        order_name: str | None,
         fiscal_number: str | None,
         fiscal_document: str | None,
         fiscal_sign: str | None,
@@ -210,7 +207,7 @@ async def save_receipt(
 
     Args:
         session: Сессия БД
-        order_id, fiscal_*, sum, date_buy, name_supplier: Данные чека
+        order_name, fiscal_*, sum, date_buy, name_supplier: Данные чека
         items: Позиции чека с категориями
         user_id: ID пользователя
 
@@ -225,7 +222,7 @@ async def save_receipt(
 
     # 2. Создаем чек
     new_receipt = Receipt(
-        order_id=order_id,
+        order_name=order_name,
         fiscal_number=fiscal_number,
         fiscal_document=fiscal_document,
         fiscal_sign=fiscal_sign,
@@ -239,7 +236,7 @@ async def save_receipt(
     session.add(new_receipt)
     await session.flush()
 
-    # 3. Создаем позиции чека
+    # 3. Создаем позиции чека и обновляем склад
     for item_data in items:
         # Получаем/создаем товар в каталоге
         product = None
@@ -261,14 +258,23 @@ async def save_receipt(
         )
         session.add(receipt_item)
 
+        # Обновляем остаток на складе (если товар создан/найден)
+        if product:
+            await update_warehouse_stock(
+                session,
+                product.id,
+                Decimal(item_data.count_product),
+            )
+
     await session.commit()
-    await session.refresh(new_receipt)
 
     # Загружаем позиции
     stmt = (
         select(Receipt)
         .where(Receipt.id == new_receipt.id)
-        .options(selectinload(Receipt.items))
+        .options(
+            selectinload(Receipt.items).selectinload(ReceiptItem.product).selectinload(Product.category)
+        )
     )
     result = await session.execute(stmt)
     return result.scalar_one()
@@ -279,24 +285,35 @@ async def get_receipt_by_id(
         receipt_id: int,
 ) -> Receipt | None:
     """Получить чек по ID с позициями"""
+    from core.models import Product, Category
+
     stmt = (
         select(Receipt)
         .where(Receipt.id == receipt_id)
-        .options(selectinload(Receipt.items))
+        .options(
+            selectinload(Receipt.items).selectinload(ReceiptItem.product).selectinload(Product.category)
+        )
     )
     result = await session.execute(stmt)
     return result.scalar_one_or_none()
 
 
-async def get_receipts_by_order(
+async def get_all_receipts(
         session: AsyncSession,
-        order_id: int,
+        skip: int = 0,
+        limit: int = 100,
 ) -> list[Receipt]:
-    """Получить все чеки по заказу"""
+    """Получить все чеки с пагинацией"""
+    from core.models import Product, Category
+
     stmt = (
         select(Receipt)
-        .where(Receipt.order_id == order_id)
-        .options(selectinload(Receipt.items))
+        .options(
+            selectinload(Receipt.items).selectinload(ReceiptItem.product).selectinload(Product.category)
+        )
+        .offset(skip)
+        .limit(limit)
+        .order_by(Receipt.date_create.desc())
     )
     result = await session.execute(stmt)
     return list(result.scalars().all())

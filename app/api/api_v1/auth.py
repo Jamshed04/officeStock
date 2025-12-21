@@ -132,8 +132,8 @@ async def get_current_user_info(
     # Загружаем роль пользователя
     stmt = (
         select(User)
-        .where(User.id == user.id)
         .options(selectinload(User.role))
+        .where(User.id == user.id)
     )
     result = await session.execute(stmt)
     user = result.scalar_one()

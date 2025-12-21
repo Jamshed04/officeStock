@@ -9,6 +9,7 @@ __all__ = (
     "Warehouse",
     "Receipt",
     "ReceiptItem",
+    "WriteOffSchedule",
     "AccessToken",
 )
 
@@ -23,4 +24,4 @@ from .access_token import AccessToken
 from .catalog import Category, Product
 
 # Склад и чеки
-from .warehouse import Warehouse, Receipt, ReceiptItem
+from .warehouse import Warehouse, Receipt, ReceiptItem, WriteOffSchedule
