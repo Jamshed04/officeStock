@@ -9,6 +9,7 @@ from .receipts import router as receipts_router
 from .warehouse import router as warehouse_router
 from .categories import router as categories_router
 from .write_off import router as writeoff_router
+from .reports import router as reports_router
 
 http_bearer = HTTPBearer(auto_error=False)
 router = APIRouter(
@@ -23,3 +24,4 @@ router.include_router(admin_users_router)
 router.include_router(warehouse_router)
 router.include_router(categories_router)
 router.include_router(writeoff_router)
+router.include_router(reports_router)

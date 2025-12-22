@@ -298,6 +298,7 @@ async def get_receipt_by_id(
     return result.scalar_one_or_none()
 
 
+
 async def get_all_receipts(
         session: AsyncSession,
         skip: int = 0,

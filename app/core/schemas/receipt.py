@@ -1,6 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+from typing import Any
 
 
 # === Схемы для позиций чека ===
@@ -28,26 +29,31 @@ class ReceiptItemRead(ReceiptItemBase):
     class Config:
         from_attributes = True
 
+    @model_validator(mode='before')
     @classmethod
-    def extract_category_name(cls, obj, **kwargs):
-        """Переопределяем валидацию для автоматического заполнения category_name"""
-        category_name = None
-        if hasattr(obj, 'product') and obj.product:
-            if hasattr(obj.product, 'category') and obj.product.category:
-                category_name = obj.product.category.name
+    def extract_category_name(cls, data: Any) -> Any:
+        """Извлекаем category_name из связанного объекта product"""
+        # Если data - это словарь, просто возвращаем его
+        if isinstance(data, dict):
+            return data
 
-        # Создаем словарь данных
-        data = {
-            'id': obj.id,
-            'receipt_id': obj.receipt_id,
-            'product_name': obj.product_name,
-            'count_product': float(obj.count_product),
-            'unit_price': float(obj.unit_price),
-            'sum': float(obj.sum),
-            'product_id': obj.product_id if hasattr(obj, 'product_id') else None,
+        # Если это объект ORM, извлекаем данные
+        category_name = None
+        if hasattr(data, 'product') and data.product:
+            if hasattr(data.product, 'category') and data.product.category:
+                category_name = data.product.category.name
+
+        # Возвращаем словарь с данными
+        return {
+            'id': data.id,
+            'receipt_id': data.receipt_id,
+            'product_name': data.product_name,
+            'count_product': float(data.count_product),
+            'unit_price': float(data.unit_price),
+            'sum': float(data.sum),
+            'product_id': data.product_id if hasattr(data, 'product_id') else None,
             'category_name': category_name,
         }
-        return cls(**data)
 
 
 # === Схемы для чека ===

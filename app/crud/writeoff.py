@@ -3,7 +3,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from api.websockets import manager
 from core.models import WriteOffSchedule, Warehouse, Product
+from core.schemas.notification import NotificationSchema
 
 
 async def get_active_writeoff_schedules(
@@ -27,16 +29,19 @@ async def get_active_writeoff_schedules(
     return list(result.scalars().all())
 
 
-async def process_writeoffs(session: AsyncSession) -> dict:
+async def process_writeoffs(session: AsyncSession, delete_when_zero: bool = True) -> dict:
     """
     Обработать все расписания списания.
 
     Проверяет каждое активное расписание:
     - Если прошло достаточно дней с последнего списания, списывает товар
-    - Если товара нет на складе или остаток стал 0, деактивирует расписание
+    - Если товара нет на складе или остаток стал 0:
+      * Если delete_when_zero=True: удаляет расписание из БД
+      * Если delete_when_zero=False: деактивирует расписание
 
     Args:
         session: Сессия БД
+        delete_when_zero: Удалять ли расписание при достижении 0 (по умолчанию True)
 
     Returns:
         Словарь с результатами обработки
@@ -48,6 +53,7 @@ async def process_writeoffs(session: AsyncSession) -> dict:
         "processed": 0,
         "written_off": 0,
         "deactivated": 0,
+        "deleted": 0,
         "errors": []
     }
 
@@ -75,18 +81,26 @@ async def process_writeoffs(session: AsyncSession) -> dict:
             result = await session.execute(stmt)
             warehouse_record = result.scalar_one_or_none()
 
-            # Если товара нет на складе, деактивируем расписание
+            # Если товара нет на складе
             if warehouse_record is None:
-                schedule.is_active = False
-                results["deactivated"] += 1
+                if delete_when_zero:
+                    await session.delete(schedule)
+                    results["deleted"] += 1
+                else:
+                    schedule.is_active = False
+                    results["deactivated"] += 1
                 await session.flush()
                 continue
 
             # Проверяем остаток
             if warehouse_record.rest <= 0:
-                # Остаток уже 0, деактивируем расписание
-                schedule.is_active = False
-                results["deactivated"] += 1
+                # Остаток уже 0
+                if delete_when_zero:
+                    await session.delete(schedule)
+                    results["deleted"] += 1
+                else:
+                    schedule.is_active = False
+                    results["deactivated"] += 1
                 await session.flush()
                 continue
 
@@ -102,13 +116,28 @@ async def process_writeoffs(session: AsyncSession) -> dict:
             # Обновляем дату последнего списания
             schedule.last_writeoff_date = now
 
-            # Если остаток стал 0, деактивируем расписание
+            # Если остаток стал 0
             if warehouse_record.rest <= 0:
-                schedule.is_active = False
-                results["deactivated"] += 1
+                if delete_when_zero:
+                    await session.delete(schedule)
+                    results["deleted"] += 1
+                else:
+                    schedule.is_active = False
+                    results["deactivated"] += 1
 
             results["written_off"] += 1
             await session.flush()
+
+            if warehouse_record.rest < 2:
+                notification = NotificationSchema(
+                    type="low_stock",
+                    payload={
+                        "product_id": schedule.product_id,
+                        "current_stock": warehouse_record.rest,
+                        "message": f"Low stock alert: Product {schedule.product_id} has {warehouse_record.rest} left!"
+                    }
+                )
+                await manager.broadcast(notification)
 
         except Exception as e:
             results["errors"].append({
@@ -226,4 +255,3 @@ async def delete_writeoff_schedule(
     await session.delete(schedule)
     await session.flush()
     return True
-

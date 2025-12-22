@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class RunConfig(BaseModel):
     host: str = "0.0.0.0"
-    port: int = 8001
+    port: int = 8045
 
 
 class ApiV1Prefix(BaseModel):
