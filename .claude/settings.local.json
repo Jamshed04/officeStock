@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(python -m alembic revision:*)",
-      "Bash(.venvScriptspython.exe -m alembic revision -m \"change_user_role_to_single\")",
-      "Bash(\".venv/Scripts/python.exe\" -m alembic revision -m \"change_user_role_to_single\")"
-    ]
-  }
-}

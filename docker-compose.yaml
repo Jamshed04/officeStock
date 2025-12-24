@@ -1,24 +1,26 @@
 services:
 
   pg:
-    image: postgres
+    image: postgres:16
     environment:
-      POSTGRES_DB: officeStock
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: vorishka
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "5439:5432"
 
-  adminer:
-    image: adminer
+  app:
+    build: .
+    container_name: office_app
     ports:
-      - "8080:8080"
+      - "8045:8045"
+    env_file:
+      - .env
+    depends_on:
+      - pg
+    restart: always
 
-  pgadmin:
-    image: dpage/pgadmin4
-    environment:
-      PGADMIN_DEFAULT_EMAIL: admin@admin.org
-      PGADMIN_DEFAULT_PASSWORD: admin
-      PGADMIN_CONFIG_SERVER_MODE: 'False'
-    ports:
-      - "5050:80"
+volumes:
+  pgdata:
