@@ -165,4 +165,4 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
-ml
+ml/ml_data
